@@ -1,0 +1,83 @@
+services:
+  # 1. Render Web Service (Flask REST API + Socket.IO)
+  - type: web
+    name: codesphere-api
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python wsgi.py
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+      - key: ONLINE_COMPILER_API_KEY
+        sync: false
+      - key: ONLINE_COMPILER_BASE_URL
+        value: https://api.onlinecompiler.io
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-flash-latest
+      - key: CORS_ALLOWED_ORIGINS
+        value: "*"
+
+  # 2. Render Background Worker (Celery Task Queue)
+  - type: worker
+    name: codesphere-worker
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A celery_worker.celery_app worker --loglevel=info
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+      - key: CELERY_RESULT_BACKEND
+        sync: false
+      - key: ONLINE_COMPILER_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  # 3. Render Cron Job (24-Hour Session Expiration Scanner)
+  - type: cron
+    name: codesphere-expiration
+    env: python
+    region: singapore
+    plan: free
+    schedule: "0 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -c "from app import create_app; app=create_app('production'); ctx=app.app_context(); ctx.push(); from app.tasks.session_tasks import check_session_expirations; check_session_expirations()"
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false

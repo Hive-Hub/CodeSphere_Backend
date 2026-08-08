@@ -1,0 +1,42 @@
+# Environments & Credentials
+.env
+*.env
+.env.local
+.venv
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Databases & SQLite
+*.db
+*.sqlite
+*.sqlite3
+dev.db
+instance/
+
+# Logs
+logs/
+*.log
+
+# Pytest & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.nox/
+.tox/
+
+# Temporary Export Files & PDF Reports
+exports/
+*.pdf
+*.xlsx
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

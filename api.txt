@@ -1,0 +1,122 @@
+================================================================================
+CODESPHERE AI BACKEND - REST & WEBSOCKET API SPECIFICATION (api.txt)
+================================================================================
+Version: 7.0.0 (Render Deployment & Production Hardened)
+Base URL: /api/v1 (or /api)
+Production URL Placeholder: https://codesphere-api.onrender.com
+WebSocket Endpoint: wss://codesphere-api.onrender.com/socket.io/
+
+--------------------------------------------------------------------------------
+1. HEALTH & SYSTEM MONITORING APIs
+--------------------------------------------------------------------------------
+
+Endpoint: GET /health (or /api/v1/health)
+Method: GET
+Authentication: None
+Response: HTTP 200 OK
+Payload:
+{
+  "status": "healthy",
+  "services": {
+    "database": "healthy",
+    "redis": "healthy",
+    "online_compiler": "healthy",
+    "application": "healthy"
+  }
+}
+
+--------------------------------------------------------------------------------
+2. GLOBAL RESPONSE & ERROR FORMATS
+--------------------------------------------------------------------------------
+
+Success Response Payload (HTTP 200 / 201):
+{
+  "success": true,
+  "message": "Operation description",
+  "data": { ... },
+  "meta": null,
+  "error": null
+}
+
+Error Response Payload (HTTP 400 / 401 / 403 / 404 / 413 / 429 / 500):
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable message",
+    "details": []
+  }
+}
+
+Standard Error Codes:
+- BAD_REQUEST (400)
+- VALIDATION_ERROR (400)
+- DUPLICATE_ROLL_NUMBER (400)
+- SESSION_INACTIVE (400)
+- INVALID_MODE (400)
+- LANGUAGE_MISMATCH (400)
+- CODE_TOO_LARGE (413)
+- INPUT_TOO_LARGE (413)
+- UNAUTHORIZED (401)
+- FORBIDDEN (403)
+- NOT_FOUND (404)
+- AI_RATE_LIMITED (429)
+- COMPILER_UNAVAILABLE (503)
+- COMPILER_TIMEOUT (408)
+- INTERNAL_SERVER_ERROR (500)
+
+--------------------------------------------------------------------------------
+3. TEACHER DASHBOARD & REPORT REST APIs
+--------------------------------------------------------------------------------
+
+- POST /api/v1/teacher/session/create
+- GET /api/v1/teacher/session/{session_id}/dashboard
+- POST /api/v1/teacher/session/{session_id}/problem
+- POST /api/v1/teacher/session/{session_id}/end
+- GET /api/v1/teacher/session/{session_id}/report/pdf
+- GET /api/v1/teacher/session/{session_id}/report/excel
+- GET /api/v1/teacher/session/{session_id}/report/status
+- GET /api/v1/teacher/session/{session_id}/report/summary
+- POST /api/v1/teacher/session/{session_id}/report/retry
+
+--------------------------------------------------------------------------------
+4. STUDENT REST APIs
+--------------------------------------------------------------------------------
+
+- GET /api/v1/session/{session_code}/status
+- POST /api/v1/student/session/join
+- POST /api/v1/student/session/{session_id}/code/save
+- POST /api/v1/student/session/{session_id}/code/run
+- POST /api/v1/student/session/{session_id}/activity
+
+--------------------------------------------------------------------------------
+5. AI REST APIs
+--------------------------------------------------------------------------------
+
+- POST /api/v1/ai/student/session/{session_id}/ai/explain-error
+- POST /api/v1/ai/student/session/{session_id}/ai/hint
+- POST /api/v1/ai/student/session/{session_id}/ai/review
+- GET /api/v1/teacher/session/{session_id}/ai/overview
+
+--------------------------------------------------------------------------------
+6. WEBSOCKET EVENTS SPECIFICATION (FLASK-SOCKETIO)
+--------------------------------------------------------------------------------
+
+Socket.IO Connection:
+- Path: /socket.io/
+- Transports: websocket, polling
+- Events Emitted by Client:
+  - student_join_session: { "session_id": 1, "student_id": 1, "name": "Name" }
+  - teacher_join_session: { "session_id": 1 }
+  - code_change: { "session_id": 1, "student_id": 1, "code": "..." }
+  - typing_start: { "session_id": 1, "student_id": 1 }
+  - typing_stop: { "session_id": 1, "student_id": 1 }
+  - cursor_change: { "session_id": 1, "student_id": 1, "line": 5, "column": 12 }
+- Events Broadcast by Server (Room session:{session_id}):
+  - student_joined / student_left / student_online / student_offline
+  - student_code_updated / student_typing / student_stopped_typing / student_cursor_updated
+  - compiler_started / compiler_completed
+  - ai_analysis_started / ai_analysis_completed / ai_progress_updated
+  - session_ended: { "event": "session_ended", "session_id": 1, "reason": "teacher_ended" | "24_hour_expired" }
+================================================================================
