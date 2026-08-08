@@ -344,41 +344,51 @@ class TeacherEndSessionResource(Resource):
             }, to=room_name)
 
         # Generate PDF and Excel reports
+        report_status = "ready"
+        pdf_bytes, pdf_filename = None, None
+        excel_bytes, excel_filename = None, None
         try:
             pdf_bytes, pdf_filename = ReportService.generate_session_report(session_id)
-            excel_bytes, excel_filename = ExcelReportService.generate_excel_report(session_id)
-
-            if request.headers.get("Accept") == "application/pdf" or request.args.get("download") == "pdf":
-                import io
-                return send_file(
-                    io.BytesIO(pdf_bytes),
-                    mimetype="application/pdf",
-                    as_attachment=True,
-                    download_name=pdf_filename
-                )
-
-            if request.headers.get("Accept") == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or request.args.get("download") == "excel":
-                import io
-                return send_file(
-                    io.BytesIO(excel_bytes),
-                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    as_attachment=True,
-                    download_name=excel_filename
-                )
-
-            return api_response(
-                data={
-                    "session": session.to_dict(include_private=True),
-                    "report_status": "ready",
-                    "downloads": {
-                        "pdf": f"/api/v1/teacher/session/{session_id}/report/pdf",
-                        "excel": f"/api/v1/teacher/session/{session_id}/report/excel"
-                    }
-                },
-                message="Session ended and reports generated successfully"
-            )
         except Exception as e:
-            return api_error(f"Failed to generate session reports: {str(e)}", error_code="INTERNAL_SERVER_ERROR", status_code=500)
+            api_logger.warning(f"PDF report generation deferred: {str(e)}")
+            report_status = "deferred"
+
+        try:
+            excel_bytes, excel_filename = ExcelReportService.generate_excel_report(session_id)
+        except Exception as e:
+            api_logger.warning(f"Excel report generation deferred: {str(e)}")
+            report_status = "deferred"
+
+        if pdf_bytes and (request.headers.get("Accept") == "application/pdf" or request.args.get("download") == "pdf"):
+            import io
+            return send_file(
+                io.BytesIO(pdf_bytes),
+                mimetype="application/pdf",
+                as_attachment=True,
+                download_name=pdf_filename
+            )
+
+        if excel_bytes and (request.headers.get("Accept") == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or request.args.get("download") == "excel"):
+            import io
+            return send_file(
+                io.BytesIO(excel_bytes),
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                as_attachment=True,
+                download_name=excel_filename
+            )
+
+        return api_response(
+            data={
+                "session": session.to_dict(include_private=True),
+                "report_status": report_status,
+                "downloads": {
+                    "pdf": f"/api/v1/teacher/session/{session_id}/report/pdf",
+                    "excel": f"/api/v1/teacher/session/{session_id}/report/excel"
+                }
+            },
+            message="Session ended successfully"
+        )
+
 
 @teacher_ns.route("/session/<int:session_id>/report/status")
 class TeacherReportStatusResource(Resource):

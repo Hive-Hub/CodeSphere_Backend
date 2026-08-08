@@ -3,8 +3,8 @@ CODESPHERE AI BACKEND - REST & WEBSOCKET API SPECIFICATION (api.txt)
 ================================================================================
 Version: 7.0.0 (Render Deployment & Production Hardened)
 Base URL: /api/v1 (or /api)
-Production URL Placeholder: https://codesphere-api.onrender.com
-WebSocket Endpoint: wss://codesphere-api.onrender.com/socket.io/
+Production URL: https://codesphere-backend-x1gl.onrender.com
+WebSocket Endpoint: wss://codesphere-backend-x1gl.onrender.com/socket.io/
 
 --------------------------------------------------------------------------------
 1. HEALTH & SYSTEM MONITORING APIs
