@@ -45,7 +45,12 @@ class CleanupService:
                     f"session:{session_id}:online_students",
                     f"session:{session_id}:typing_students",
                     f"session:{session_id}:running_students",
-                    f"session:{session_id}:report_status"
+                    f"session:{session_id}:report_status",
+                    f"session:{session_id}:pdf_report",
+                    f"session:{session_id}:excel_report",
+                    f"session:{session_id}:excel_report_status",
+                    f"session:{session_id}:excel_filename",
+                    f"session:{session_id}:report_filename"
                 ]
                 for key in session_patterns:
                     r.delete(key)
@@ -55,7 +60,10 @@ class CleanupService:
                     r.delete(f"student:{st_id}:code")
                     r.delete(f"student:{st_id}:cursor")
                     r.delete(f"student:{st_id}:typing")
+                    r.delete(f"student:{st_id}:presence")
                     r.delete(f"student:{st_id}:last_active")
+                    r.delete(f"student:{st_id}:last_activity")
+
 
             except Exception as re:
                 error_logger.warning(f"Redis cleanup warning for session {session_id}: {str(re)}")

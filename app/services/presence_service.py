@@ -53,7 +53,12 @@ def get_online_student_ids(session_id: int):
         r = get_redis_client()
         set_key = f"session:{session_id}:online_students"
         members = r.smembers(set_key)
-        return set(int(m) for m in members if m.isdigit())
+        result = set()
+        for m in members:
+            s = m.decode('utf-8') if isinstance(m, bytes) else str(m)
+            if s.isdigit():
+                result.add(int(s))
+        return result
     except Exception as e:
         error_logger.warning(f"Redis get_online_student_ids failed: {str(e)}")
         return set()
@@ -64,7 +69,12 @@ def get_typing_student_ids(session_id: int):
         r = get_redis_client()
         set_key = f"session:{session_id}:typing_students"
         members = r.smembers(set_key)
-        return set(int(m) for m in members if m.isdigit())
+        result = set()
+        for m in members:
+            s = m.decode('utf-8') if isinstance(m, bytes) else str(m)
+            if s.isdigit():
+                result.add(int(s))
+        return result
     except Exception as e:
         error_logger.warning(f"Redis get_typing_student_ids failed: {str(e)}")
         return set()
@@ -75,10 +85,16 @@ def get_running_student_ids(session_id: int):
         r = get_redis_client()
         set_key = f"session:{session_id}:running_students"
         members = r.smembers(set_key)
-        return set(int(m) for m in members if m.isdigit())
+        result = set()
+        for m in members:
+            s = m.decode('utf-8') if isinstance(m, bytes) else str(m)
+            if s.isdigit():
+                result.add(int(s))
+        return result
     except Exception as e:
         error_logger.warning(f"Redis get_running_student_ids failed: {str(e)}")
         return set()
+
 
 def set_student_running_status(session_id: int, student_id: int, is_running: bool):
     """Set running code status in Redis."""

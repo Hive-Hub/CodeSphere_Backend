@@ -149,11 +149,26 @@ def test_no_cleanup_after_failed_report(client, db):
 
 def test_redis_cleanup(client, db):
     """15. Test Redis session keys purged during cleanup."""
-    _, _, s_id, _, _ = setup_test_session(client)
-    CleanupService.cleanup_session(s_id)
+    _, _, s_id, st_id, _ = setup_test_session(client)
     from app.services.redis_service import get_redis_client
     r = get_redis_client()
-    assert r.get(f"session:{s_id}:online_students") is None
+
+    # Pre-populate session sets & student keys
+    r.sadd(f"session:{s_id}:online_students", str(st_id))
+    r.sadd(f"session:{s_id}:typing_students", str(st_id))
+    r.sadd(f"session:{s_id}:running_students", str(st_id))
+    r.set(f"student:{st_id}:code", "print(1)")
+    r.set(f"student:{st_id}:presence", "online")
+
+    CleanupService.cleanup_session(s_id)
+
+    # Verify keys are purged using appropriate Redis operations
+    assert r.exists(f"session:{s_id}:online_students") == 0
+    assert r.exists(f"session:{s_id}:typing_students") == 0
+    assert r.exists(f"session:{s_id}:running_students") == 0
+    assert r.exists(f"student:{st_id}:code") == 0
+    assert r.exists(f"student:{st_id}:presence") == 0
+
 
 def test_database_cleanup(client, db):
     """16. Test DB records purged during cleanup."""
