@@ -9,7 +9,7 @@ CodeSphere AI is an intelligent real-time coding classroom platform. This reposi
 ### 1. Render Components Architecture & Commands
 - **Web Service (`codesphere-api`)**:
   - **Build Command**: `./build.sh`
-  - **Start Command**: `gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app`
+  - **Start Command**: `python wsgi.py`
 - **Background Worker (`codesphere-worker`)**:
   - **Build Command**: `./build.sh`
   - **Start Command**: `celery -A celery_worker.celery_app worker --loglevel=info`
