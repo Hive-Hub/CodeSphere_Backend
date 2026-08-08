@@ -36,6 +36,7 @@ api.add_namespace(student_ns, path="/student")
 api.add_namespace(session_ns, path="/session")
 api.add_namespace(ai_ns, path="/ai")
 
+api_legacy.add_namespace(health_ns, path="/health")
 api_legacy.add_namespace(teacher_ns, path="/teacher")
 api_legacy.add_namespace(student_ns, path="/student")
 api_legacy.add_namespace(session_ns, path="/session")

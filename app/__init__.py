@@ -51,4 +51,12 @@ def create_app(config_name=None):
         except Exception as e:
             app.logger.warning(f"Database table creation skipped/deferred: {str(e)}")
 
+    # Root Health Check endpoint
+    @app.route("/health")
+    def root_health():
+        from app.utils.health_checks import get_full_health_status
+        from app.utils.response import api_response
+        health = get_full_health_status()
+        return api_response(data={"status": health["overall_status"]}, message="Health check completed")
+
     return app
