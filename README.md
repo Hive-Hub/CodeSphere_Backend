@@ -6,10 +6,17 @@ CodeSphere AI is an intelligent real-time coding classroom platform. This reposi
 
 ## Production Deployment on Render (Phase 7)
 
-### 1. Render Components Architecture
-- **Web Service (`codesphere-api`)**: Hosts Flask REST APIs & Flask-SocketIO real-time server using `wsgi.py`.
-- **Background Worker (`codesphere-worker`)**: Runs Celery task queue processor (`celery -A celery_worker.celery_app worker`).
-- **Cron Job (`codesphere-expiration`)**: Executes hourly session expiration scanner (`check_session_expirations`).
+### 1. Render Components Architecture & Commands
+- **Web Service (`codesphere-api`)**:
+  - **Build Command**: `./build.sh`
+  - **Start Command**: `gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app`
+- **Background Worker (`codesphere-worker`)**:
+  - **Build Command**: `./build.sh`
+  - **Start Command**: `celery -A celery_worker.celery_app worker --loglevel=info`
+- **Cron Job (`codesphere-expiration`)**:
+  - **Build Command**: `./build.sh`
+  - **Start Command**: `python -c "from app import create_app; app=create_app('production'); ctx=app.app_context(); ctx.push(); from app.tasks.session_tasks import check_session_expirations; check_session_expirations()"`
+
 
 ### 2. Environment Variables Configuration
 Set the following environment variables in your Render Blueprint or dashboard:
@@ -69,3 +76,17 @@ Run the complete Pytest suite (Phases 0–6):
 ```bash
 python -m pytest -v
 ```
+
+---
+
+## Deployment Build Script
+
+Run the automated deployment build script locally or in CI/CD environments:
+```bash
+# Standard build (Installs deps, validates syntax, initializes DB tables)
+./build.sh
+
+# Build with full Pytest suite execution
+RUN_TESTS=true ./build.sh
+```
+

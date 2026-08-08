@@ -5,8 +5,8 @@ services:
     env: python
     region: singapore
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python wsgi.py
+    buildCommand: ./build.sh
+    startCommand: gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app
     envVars:
       - key: FLASK_ENV
         value: production
@@ -43,7 +43,7 @@ services:
     env: python
     region: singapore
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: ./build.sh
     startCommand: celery -A celery_worker.celery_app worker --loglevel=info
     envVars:
       - key: FLASK_ENV
@@ -70,7 +70,7 @@ services:
     region: singapore
     plan: free
     schedule: "0 * * * *"
-    buildCommand: pip install -r requirements.txt
+    buildCommand: ./build.sh
     startCommand: python -c "from app import create_app; app=create_app('production'); ctx=app.app_context(); ctx.push(); from app.tasks.session_tasks import check_session_expirations; check_session_expirations()"
     envVars:
       - key: FLASK_ENV
