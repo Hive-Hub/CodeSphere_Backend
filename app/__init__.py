@@ -7,7 +7,6 @@ from app.extensions import (
 from app.logger import setup_loggers
 from app.utils.errors import register_error_handlers
 from app.api import api_bp
-import app.websockets # Import Socket.IO handlers
 
 def create_app(config_name=None):
     """Application Factory for CodeSphere AI Backend."""
@@ -23,49 +22,33 @@ def create_app(config_name=None):
 
     # Initialize Extensions
     db.init_app(app)
+    jwt.init_app(app)
+
+    # Enable Flask-CORS universally for all routes and sub-paths
     cors.init_app(
         app,
         resources={
-            r"/api/*": {
-                "origins": [
-                    r"https?://.*\.vercel\.app",
-                    r"https?://localhost:\d+",
-                    r"https?://127\.0\.0\.1:\d+",
-                    "*"
-                ],
-                "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+            r"/*": {
+                "origins": "*",
+                "allow_headers": "*",
                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
             }
         }
     )
+
     limiter.init_app(app)
     migrate.init_app(app, db)
     socketio.init_app(app, cors_allowed_origins="*")
 
-    # Global CORS Handlers for Vercel & Dynamic Origins
-    @app.before_request
-    def handle_options_preflight():
-        if os.getenv("FLASK_ENV") != "testing" and app.env != "testing":
-            from flask import request
-            if request.method == "OPTIONS":
-                from flask import make_response
-                response = make_response()
-                origin = request.headers.get("Origin", "*")
-                response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Access-Control-Allow-Credentials"] = "true"
-                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept"
-                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-                return response, 200
-
+    # Global CORS Interceptor Fallback
     @app.after_request
     def add_cors_headers(response):
         from flask import request
-        origin = request.headers.get("Origin")
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        origin = request.headers.get("Origin", "*")
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
         return response
     
     # Initialize Celery with Flask app context
@@ -88,14 +71,6 @@ def create_app(config_name=None):
         try:
             db.create_all()
         except Exception as e:
-            app.logger.warning(f"Database table creation skipped/deferred: {str(e)}")
-
-    # Root Health Check endpoint
-    @app.route("/health")
-    def root_health():
-        from app.utils.health_checks import get_full_health_status
-        from app.utils.response import api_response
-        health = get_full_health_status()
-        return api_response(data={"status": health["overall_status"]}, message="Health check completed")
+            app.logger.warning(f"Could not verify/create DB tables at startup: {str(e)}")
 
     return app
