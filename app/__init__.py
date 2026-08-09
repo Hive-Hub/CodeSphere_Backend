@@ -41,6 +41,32 @@ def create_app(config_name=None):
     limiter.init_app(app)
     migrate.init_app(app, db)
     socketio.init_app(app, cors_allowed_origins="*")
+
+    # Global CORS Handlers for Vercel & Dynamic Origins
+    @app.before_request
+    def handle_options_preflight():
+        if os.getenv("FLASK_ENV") != "testing" and app.env != "testing":
+            from flask import request
+            if request.method == "OPTIONS":
+                from flask import make_response
+                response = make_response()
+                origin = request.headers.get("Origin", "*")
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept"
+                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+                return response, 200
+
+    @app.after_request
+    def add_cors_headers(response):
+        from flask import request
+        origin = request.headers.get("Origin")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        return response
     
     # Initialize Celery with Flask app context
     init_celery(app)
