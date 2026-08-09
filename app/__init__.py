@@ -23,8 +23,21 @@ def create_app(config_name=None):
 
     # Initialize Extensions
     db.init_app(app)
-    jwt.init_app(app)
-    cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ALLOWED_ORIGINS"]}})
+    cors.init_app(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": [
+                    r"https?://.*\.vercel\.app",
+                    r"https?://localhost:\d+",
+                    r"https?://127\.0\.0\.1:\d+",
+                    "*"
+                ],
+                "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+            }
+        }
+    )
     limiter.init_app(app)
     migrate.init_app(app, db)
     socketio.init_app(app, cors_allowed_origins="*")
