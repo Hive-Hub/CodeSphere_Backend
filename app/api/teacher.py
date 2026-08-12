@@ -4,10 +4,15 @@ from flask_restx import Namespace, Resource, fields
 from app.extensions import db, socketio, limiter
 from app.models.session import Session
 from app.models.student import Student
+from app.models.teacher import Teacher
+from app.models.session_student import SessionStudent
 from app.models.problem import Problem
 from app.models.code_snapshot import CodeSnapshot
 from app.schemas.session_schema import TeacherSessionCreateSchema, ProblemCreateSchema
-from app.utils.auth import generate_session_code, generate_teacher_token, teacher_token_required
+from app.utils.auth import (
+    generate_session_code, generate_teacher_token, generate_teacher_profile_token,
+    teacher_token_required, verify_teacher_session_access
+)
 from app.services.presence_service import get_online_count
 from app.services.code_service import get_student_live_code, get_student_live_cursor
 from app.services.report_service import ReportService
@@ -39,6 +44,165 @@ problem_create_model = teacher_ns.model("ProblemCreate", {
     "reference_solution": fields.String(required=False, example="def two_sum(nums, target): ...")
 })
 
+from app.services.dashboard_service import DashboardService
+
+@teacher_ns.route("/profile")
+class TeacherProfileResource(Resource):
+    def post(self):
+        """Create or update persistent teacher profile and return access token."""
+        data = request.get_json() or {}
+        email = (data.get("email") or "").strip()
+        name = (data.get("name") or "").strip()
+        college = (data.get("college") or "").strip()
+        department = (data.get("department") or "").strip()
+        subject = (data.get("subject") or "").strip()
+
+        if not email or not name:
+            return api_error("Email and Name are required", error_code="VALIDATION_ERROR", status_code=400)
+
+        # Look up existing teacher by email to prevent duplicate records
+        teacher = Teacher.query.filter(Teacher.email.ilike(email)).first()
+        if teacher:
+            if name: teacher.name = name
+            if college: teacher.college = college
+            if department: teacher.department = department
+            if subject: teacher.subject = subject
+            db.session.commit()
+        else:
+            dummy_token = f"tmp_token_{secrets.token_hex(16)}" if 'secrets' in globals() else f"tmp_{email}"
+            import secrets
+            token_str = f"tch_{secrets.token_hex(24)}"
+            teacher = Teacher(
+                name=name,
+                email=email.lower(),
+                college=college or "University",
+                department=department or "CS",
+                subject=subject or "General",
+                teacher_token=token_str
+            )
+            teacher.save()
+
+        auth_token = generate_teacher_profile_token(teacher.id, teacher.email)
+        teacher.teacher_token = auth_token
+        db.session.commit()
+
+        return api_response(
+            data={
+                "teacher_token": auth_token,
+                "teacher": teacher.to_dict(include_token=True)
+            },
+            message="Teacher profile initialized successfully",
+            status_code=200 if teacher else 201
+        )
+
+    @teacher_token_required
+    def get(self):
+        """Get authenticated teacher profile."""
+        claims = getattr(request, "teacher_claims", {})
+        teacher_id = claims.get("teacher_id")
+        email = claims.get("email")
+
+        teacher = None
+        if teacher_id:
+            teacher = Teacher.query.get(teacher_id)
+        elif email:
+            teacher = Teacher.query.filter(Teacher.email.ilike(email)).first()
+
+        if not teacher:
+            return api_error("Teacher profile not found", error_code="NOT_FOUND", status_code=404)
+
+        return api_response(
+            data={"teacher": teacher.to_dict(include_token=True)},
+            message="Teacher profile retrieved"
+        )
+
+@teacher_ns.route("/dashboard/stats")
+class TeacherDashboardStatsResource(Resource):
+    @teacher_token_required
+    def get(self):
+        """Get persistent database dashboard statistics."""
+        claims = getattr(request, "teacher_claims", {})
+        teacher_id = claims.get("teacher_id")
+        email = claims.get("email")
+
+        stats = DashboardService.get_teacher_global_stats(teacher_id=teacher_id, teacher_email=email)
+        return api_response(data=stats, message="Dashboard statistics retrieved")
+
+@teacher_ns.route("/sessions")
+class TeacherSessionsListResource(Resource):
+    @teacher_token_required
+    def get(self):
+        """Get list of active and existing/completed sessions for teacher."""
+        claims = getattr(request, "teacher_claims", {})
+        teacher_id = claims.get("teacher_id")
+        email = claims.get("email")
+        session_id = claims.get("session_id")
+
+        query = Session.query
+        if teacher_id or email:
+            if teacher_id and email:
+                query = query.filter((Session.teacher_id == teacher_id) | (Session.teacher_email.ilike(email)))
+            elif teacher_id:
+                query = query.filter(Session.teacher_id == teacher_id)
+            else:
+                query = query.filter(Session.teacher_email.ilike(email))
+        elif session_id:
+            query = query.filter(Session.id == session_id)
+
+        sessions = query.order_by(Session.created_at.desc()).all()
+        result = []
+        for s in sessions:
+            st_count = Student.query.filter_by(session_id=s.id).count()
+            if st_count == 0:
+                from app.models.session_student import SessionStudent
+                st_count = SessionStudent.query.filter_by(session_id=s.id).count()
+            d = s.to_dict(include_private=True)
+            d["student_count"] = st_count
+            result.append(d)
+
+        return api_response(
+            data={"sessions": result, "total": len(result)},
+            message="Teacher sessions retrieved"
+        )
+
+@teacher_ns.route("/students/search")
+@teacher_ns.route("/students")
+class TeacherStudentsListResource(Resource):
+    @teacher_token_required
+    def get(self):
+        """Search student directory and retrieve historical performance records."""
+        claims = getattr(request, "teacher_claims", {})
+        teacher_id = claims.get("teacher_id")
+        email = claims.get("email")
+        q = request.args.get("q", "").strip() or request.args.get("query", "").strip()
+
+        history_records = DashboardService.search_student_history(query_str=q, teacher_id=teacher_id, teacher_email=email)
+        return api_response(
+            data={"students": history_records, "total": len(history_records)},
+            message="Student records retrieved"
+        )
+
+@teacher_ns.route("/students/<int:student_id>/history")
+class TeacherStudentHistoryResource(Resource):
+    @teacher_token_required
+    def get(self, student_id):
+        """Get detailed session participation history for a single student."""
+        claims = getattr(request, "teacher_claims", {})
+        teacher_id = claims.get("teacher_id")
+        email = claims.get("email")
+
+        st = Student.query.get(student_id)
+        if not st:
+            return api_error("Student record not found", error_code="NOT_FOUND", status_code=404)
+
+        history_records = DashboardService.search_student_history(query_str=st.roll_number, teacher_id=teacher_id, teacher_email=email)
+        student_data = history_records[0] if history_records else None
+
+        if not student_data:
+            return api_error("No historical data found for student", error_code="NOT_FOUND", status_code=404)
+
+        return api_response(data=student_data, message="Student history retrieved")
+
 @teacher_ns.route("/session/create")
 class TeacherSessionCreateResource(Resource):
     @limiter.limit("10 per minute")
@@ -50,6 +214,21 @@ class TeacherSessionCreateResource(Resource):
         if errors:
             return api_error("Validation failed", error_code="VALIDATION_ERROR", status_code=400, details=errors)
         
+        # Check if teacher profile exists or create one
+        teacher = Teacher.query.filter(Teacher.email.ilike(data["teacher_email"])).first()
+        if not teacher:
+            import secrets
+            token_str = f"tch_{secrets.token_hex(24)}"
+            teacher = Teacher(
+                name=data["teacher_name"],
+                email=data["teacher_email"].lower(),
+                college=data["college"],
+                department=data["department"],
+                subject=data["subject"],
+                teacher_token=token_str
+            )
+            teacher.save()
+
         session_code = generate_session_code()
         while Session.query.filter_by(session_code=session_code, status="active").first():
             session_code = generate_session_code()
@@ -64,6 +243,7 @@ class TeacherSessionCreateResource(Resource):
             title=data["title"],
             language=data["language"].lower(),
             mode=data["mode"].lower(),
+            teacher_id=teacher.id,
             status="active"
         )
         session.save()
@@ -72,9 +252,13 @@ class TeacherSessionCreateResource(Resource):
         session.teacher_token = teacher_token
         db.session.commit()
 
+        # Generate persistent teacher profile token as well
+        profile_token = generate_teacher_profile_token(teacher.id, teacher.email)
+
         return api_response(
             data={
                 "teacher_token": teacher_token,
+                "profile_token": profile_token,
                 "session": session.to_dict(include_private=True)
             },
             message="Coding session created successfully",

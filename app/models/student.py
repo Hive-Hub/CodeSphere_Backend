@@ -3,13 +3,10 @@ from app.extensions import db
 from app.models.base import BaseModel
 
 class Student(BaseModel):
-    """Student Session Member Model."""
+    """Student Identity and Session Member Model."""
     __tablename__ = "students"
-    __table_args__ = (
-        db.UniqueConstraint("session_id", "roll_number", name="uq_session_roll_number"),
-    )
 
-    session_id = db.Column(db.Integer, db.ForeignKey("sessions.id"), nullable=False, index=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("sessions.id"), nullable=True, index=True)
     name = db.Column(db.String(100), nullable=False)
     roll_number = db.Column(db.String(50), nullable=False, index=True)
     department = db.Column(db.String(100), nullable=False)

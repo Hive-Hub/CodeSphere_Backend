@@ -6,6 +6,7 @@ from app.api.teacher import teacher_ns
 from app.api.student import student_ns
 from app.api.session import session_ns
 from app.api.ai import ai_ns
+from app.api.reports_v2 import reports_v2_ns
 
 api_bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 api_legacy_bp = Blueprint("api_legacy", __name__, url_prefix="/api")
@@ -35,9 +36,11 @@ api.add_namespace(teacher_ns, path="/teacher")
 api.add_namespace(student_ns, path="/student")
 api.add_namespace(session_ns, path="/session")
 api.add_namespace(ai_ns, path="/ai")
+api.add_namespace(reports_v2_ns, path="/teacher/reports")
 
 api_legacy.add_namespace(health_ns, path="/health")
 api_legacy.add_namespace(teacher_ns, path="/teacher")
 api_legacy.add_namespace(student_ns, path="/student")
 api_legacy.add_namespace(session_ns, path="/session")
 api_legacy.add_namespace(ai_ns, path="/ai")
+api_legacy.add_namespace(reports_v2_ns, path="/teacher/reports")

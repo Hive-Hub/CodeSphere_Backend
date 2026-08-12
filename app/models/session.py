@@ -17,6 +17,7 @@ class Session(BaseModel):
     mode = db.Column(db.String(30), nullable=False)      # practice, problem_solving
     status = db.Column(db.String(20), default="active", nullable=False, index=True) # active, ended, expired
     teacher_token = db.Column(db.String(255), nullable=True)
+    teacher_id = db.Column(db.Integer, db.ForeignKey("teachers.id"), nullable=True, index=True)
     
     expires_at = db.Column(
         db.DateTime(timezone=True),
@@ -26,6 +27,7 @@ class Session(BaseModel):
     ended_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     # Relationships
+    teacher = db.relationship("Teacher", back_populates="sessions")
     students = db.relationship("Student", back_populates="session", cascade="all, delete-orphan", lazy="select")
     problems = db.relationship("Problem", back_populates="session", cascade="all, delete-orphan", lazy="select")
 

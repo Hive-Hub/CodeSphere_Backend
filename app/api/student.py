@@ -59,30 +59,54 @@ class StudentJoinResource(Resource):
             msg = "Session is ended" if session.status == "ended" else "Session has expired"
             return api_error(f"Cannot join: {msg}", error_code="SESSION_INACTIVE", status_code=400)
 
-        existing_student = Student.query.filter_by(
-            session_id=session.id,
-            roll_number=data["roll_number"].strip()
-        ).first()
-        
-        if existing_student:
-            return api_error(
-                f"Student with roll number '{data['roll_number']}' has already joined this session",
-                error_code="DUPLICATE_ROLL_NUMBER",
-                status_code=400
+        roll_num = data["roll_number"].strip()
+        name_str = data["name"].strip()
+        dept_str = data["department"].strip()
+        year_str = data["year"].strip()
+        sec_str = data["section"].strip()
+
+        # Check if persistent global Student identity exists by roll_number
+        student = Student.query.filter(Student.roll_number.ilike(roll_num)).first()
+        if student:
+            # Update student details if provided
+            student.name = name_str
+            student.department = dept_str
+            student.year = year_str
+            student.section = sec_str
+            student.session_id = session.id
+            student.status = "online"
+            student.last_active = datetime.now(timezone.utc)
+            db.session.commit()
+        else:
+            student = Student(
+                session_id=session.id,
+                name=name_str,
+                roll_number=roll_num,
+                department=dept_str,
+                year=year_str,
+                section=sec_str,
+                status="online"
             )
+            student.save()
 
-        student = Student(
-            session_id=session.id,
-            name=data["name"].strip(),
-            roll_number=data["roll_number"].strip(),
-            department=data["department"].strip(),
-            year=data["year"].strip(),
-            section=data["section"].strip(),
-            status="online"
-        )
-        student.save()
-
+        from app.models.session_student import SessionStudent
+        participation = SessionStudent.query.filter_by(session_id=session.id, student_id=student.id).first()
         student_token = generate_student_token(student.id, session.id)
+
+        if not participation:
+            participation = SessionStudent(
+                session_id=session.id,
+                student_id=student.id,
+                student_token=student_token,
+                status="online",
+                completion_status="in_progress"
+            )
+            participation.save()
+        else:
+            participation.status = "online"
+            participation.student_token = student_token
+            db.session.commit()
+
         student.student_token = student_token
         db.session.commit()
 
@@ -268,6 +292,19 @@ class StudentCodeRunResource(Resource):
         if len(stdin.encode("utf-8")) > MAX_INPUT_SIZE_BYTES:
             return api_error("Input payload exceeds 100KB limit", error_code="INPUT_TOO_LARGE", status_code=413)
 
+        # Socket.IO event: compiler_started
+        try:
+            from app.extensions import socketio
+            socketio.emit("compiler_started", {
+                "event": "compiler_started",
+                "session_id": session.id,
+                "student_id": student_id,
+                "language": language,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }, to=f"session:{session.id}")
+        except Exception:
+            pass
+
         # Execute code via OnlineCompilerService
         result = OnlineCompilerService.execute_code(language, code, stdin)
 
@@ -287,6 +324,24 @@ class StudentCodeRunResource(Resource):
         )
         execution_log.save()
 
+        # Socket.IO event: compiler_completed
+        try:
+            from app.extensions import socketio
+            socketio.emit("compiler_completed", {
+                "event": "compiler_completed",
+                "session_id": session.id,
+                "student_id": student_id,
+                "language": language,
+                "status": result.get("status", "unknown"),
+                "exit_code": result.get("exit_code", 0),
+                "execution_time": result.get("execution_time", "0.0s"),
+                "memory": result.get("memory", "0KB"),
+                "output": result.get("output", ""),
+                "error": result.get("error", "")
+            }, to=f"session:{session.id}")
+        except Exception:
+            pass
+
         # Record activity event
         record_activity_event(session.id, student_id, "run_code", {"language": language})
 
@@ -299,3 +354,20 @@ class StudentCodeRunResource(Resource):
             )
 
         return api_response(data=result, message="Code executed successfully")
+
+@student_ns.route("/session/<int:session_id>/executions")
+class StudentExecutionsResource(Resource):
+    @student_token_required
+    def get(self, session_id):
+        """Get current session code execution history for student."""
+        claims = getattr(request, "student_claims", {})
+        student_id = claims.get("student_id")
+
+        executions = CodeExecution.query.filter_by(
+            session_id=session_id, student_id=student_id
+        ).order_by(CodeExecution.created_at.desc()).limit(50).all()
+
+        return api_response(
+            data={"executions": [e.to_dict() for e in executions]},
+            message="Student execution history retrieved"
+        )

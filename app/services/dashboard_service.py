@@ -339,3 +339,188 @@ class DashboardService:
             "runtime_errors": runtime_errors,
             "activity_count": activity_count
         }
+
+    @classmethod
+    def get_teacher_global_stats(cls, teacher_id: int = None, teacher_email: str = None):
+        """Calculate persistent database statistics for teacher dashboard."""
+        from app.models.teacher import Teacher
+        from app.models.session_student import SessionStudent
+
+        query = Session.query
+        if teacher_id:
+            query = query.filter((Session.teacher_id == teacher_id) | (Session.teacher_email == teacher_email))
+        elif teacher_email:
+            query = query.filter(Session.teacher_email.ilike(teacher_email))
+
+        all_sessions = query.all()
+        session_ids = [s.id for s in all_sessions]
+
+        total_sessions = len(all_sessions)
+        active_sessions = sum(1 for s in all_sessions if s.status == "active")
+        completed_sessions = sum(1 for s in all_sessions if s.status in ["ended", "expired"])
+
+        now_utc = datetime.now(timezone.utc)
+        today_start = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=timezone.utc)
+
+        sessions_today = sum(1 for s in all_sessions if s.created_at and (s.created_at if s.created_at.tzinfo else s.created_at.replace(tzinfo=timezone.utc)) >= today_start)
+
+        if session_ids:
+            # Unique student count or total participation count
+            unique_students_count = db.session.query(func.count(func.distinct(SessionStudent.student_id))).filter(SessionStudent.session_id.in_(session_ids)).scalar() or 0
+            if unique_students_count == 0:
+                unique_students_count = db.session.query(func.count(func.distinct(Student.roll_number))).filter(Student.session_id.in_(session_ids)).scalar() or 0
+
+            students_today = db.session.query(func.count(func.distinct(SessionStudent.student_id))).filter(
+                SessionStudent.session_id.in_(session_ids),
+                SessionStudent.joined_at >= today_start
+            ).scalar() or 0
+            if students_today == 0:
+                students_today = db.session.query(func.count(func.distinct(Student.roll_number))).filter(
+                    Student.session_id.in_(session_ids),
+                    Student.joined_at >= today_start
+                ).scalar() or 0
+        else:
+            unique_students_count = 0
+            students_today = 0
+
+        return {
+            "total_students": unique_students_count,
+            "students_today": students_today,
+            "total_sessions": total_sessions,
+            "sessions_today": sessions_today,
+            "active_sessions": active_sessions,
+            "completed_sessions": completed_sessions
+        }
+
+    @classmethod
+    def search_student_history(cls, query_str: str = "", teacher_id: int = None, teacher_email: str = None):
+        """Search student records and return persistent historical stats and session participation."""
+        from app.models.session_student import SessionStudent
+        from app.models.ai_review import AIReview
+
+        # Get session IDs owned by teacher if filter requested
+        teacher_session_ids = None
+        if teacher_id or teacher_email:
+            t_query = Session.query
+            if teacher_id:
+                t_query = t_query.filter((Session.teacher_id == teacher_id) | (Session.teacher_email == teacher_email))
+            elif teacher_email:
+                t_query = t_query.filter(Session.teacher_email.ilike(teacher_email))
+            teacher_session_ids = [s.id for s in t_query.all()]
+
+        student_query = Student.query
+        if query_str:
+            q = f"%{query_str}%"
+            student_query = student_query.filter((Student.name.ilike(q)) | (Student.roll_number.ilike(q)))
+
+        students = student_query.order_by(Student.name.asc()).all()
+
+        results = []
+        for st in students:
+            # Find participations
+            p_query = SessionStudent.query.filter_by(student_id=st.id)
+            if teacher_session_ids is not None:
+                p_query = p_query.filter(SessionStudent.session_id.in_(teacher_session_ids))
+            participations = p_query.all()
+
+            # Also check V1 direct student records if no SessionStudent found
+            if not participations and (teacher_session_ids is None or st.session_id in teacher_session_ids):
+                # Fallback V1 simulation
+                sess = Session.query.get(st.session_id) if st.session_id else None
+                exec_count = CodeExecution.query.filter_by(student_id=st.id).count()
+                success_count = CodeExecution.query.filter_by(student_id=st.id, exit_code=0).count()
+                failed_count = max(0, exec_count - success_count)
+                
+                ai_revs = AIReview.query.filter_by(student_id=st.id).all()
+                avg_progress = int(sum(r.progress for r in ai_revs if r.progress is not None) / len(ai_revs)) if ai_revs else 0
+                avg_ai_score = round(sum(r.code_quality for r in ai_revs if r.code_quality is not None) / len(ai_revs), 1) if ai_revs else 0.0
+
+                results.append({
+                    "student_id": st.id,
+                    "name": st.name,
+                    "roll_number": st.roll_number,
+                    "department": st.department,
+                    "year": st.year,
+                    "section": st.section,
+                    "total_sessions": 1 if sess else 0,
+                    "avg_score": avg_ai_score,
+                    "avg_ai_score": avg_ai_score,
+                    "avg_progress": avg_progress,
+                    "avg_code_quality": avg_ai_score,
+                    "compiler_runs": exec_count,
+                    "successful_runs": success_count,
+                    "failed_runs": failed_count,
+                    "first_session": st.joined_at.isoformat() if st.joined_at else None,
+                    "last_session": st.last_active.isoformat() if st.last_active else (st.joined_at.isoformat() if st.joined_at else None),
+                    "sessions": [{
+                        "session_id": sess.id if sess else None,
+                        "date": sess.created_at.isoformat() if sess and sess.created_at else (st.joined_at.isoformat() if st.joined_at else None),
+                        "session_title": sess.title if sess else "Coding Session",
+                        "language": sess.language if sess else "python",
+                        "problem": sess.title if sess else "General Practice",
+                        "progress": avg_progress,
+                        "score": avg_ai_score,
+                        "ai_score": avg_ai_score,
+                        "result": "Completed"
+                    }] if sess else []
+                })
+                continue
+
+            if not participations:
+                continue
+
+            session_ids = [p.session_id for p in participations]
+            sessions = Session.query.filter(Session.id.in_(session_ids)).all()
+            session_map = {s.id: s for s in sessions}
+
+            exec_count = CodeExecution.query.filter(CodeExecution.student_id == st.id, CodeExecution.session_id.in_(session_ids)).count()
+            success_count = CodeExecution.query.filter(CodeExecution.student_id == st.id, CodeExecution.session_id.in_(session_ids), CodeExecution.exit_code == 0).count()
+            failed_count = max(0, exec_count - success_count)
+
+            avg_progress = int(sum(p.progress for p in participations) / len(participations)) if participations else 0
+            avg_score = round(sum(p.score for p in participations) / len(participations), 1) if participations else 0.0
+            avg_ai_score = round(sum(p.ai_score for p in participations) / len(participations), 1) if participations else 0.0
+            avg_code_quality = round(sum(p.code_quality for p in participations) / len(participations), 1) if participations else 0.0
+
+            sorted_parts = sorted(participations, key=lambda x: x.joined_at or datetime.min)
+            first_sess_date = sorted_parts[0].joined_at.isoformat() if sorted_parts and sorted_parts[0].joined_at else None
+            last_sess_date = sorted_parts[-1].joined_at.isoformat() if sorted_parts and sorted_parts[-1].joined_at else None
+
+            session_history = []
+            for p in participations:
+                sess = session_map.get(p.session_id)
+                session_history.append({
+                    "session_id": p.session_id,
+                    "date": p.joined_at.isoformat() if p.joined_at else None,
+                    "session_title": sess.title if sess else f"Session #{p.session_id}",
+                    "language": sess.language if sess else "python",
+                    "problem": sess.title if sess else "General Practice",
+                    "progress": p.progress,
+                    "score": p.score,
+                    "ai_score": p.ai_score,
+                    "code_quality": p.code_quality,
+                    "result": p.completion_status.capitalize() if p.completion_status else "In Progress"
+                })
+
+            results.append({
+                "student_id": st.id,
+                "name": st.name,
+                "roll_number": st.roll_number,
+                "department": st.department,
+                "year": st.year,
+                "section": st.section,
+                "total_sessions": len(participations),
+                "avg_score": avg_score,
+                "avg_ai_score": avg_ai_score,
+                "avg_progress": avg_progress,
+                "avg_code_quality": avg_code_quality,
+                "compiler_runs": exec_count,
+                "successful_runs": success_count,
+                "failed_runs": failed_count,
+                "first_session": first_sess_date,
+                "last_session": last_sess_date,
+                "sessions": session_history
+            })
+
+        return results
+
